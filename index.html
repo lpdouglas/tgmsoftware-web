@@ -79,6 +79,80 @@
             text-decoration: underline;
         }
 
+        .donation-container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+
+        #donation-amounts {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin: 16px 0;
+        }
+
+        .amount-btn {
+            background-color: var(--card);
+            color: var(--accent);
+            border: 2px solid var(--accent);
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.2s;
+        }
+
+        .amount-btn:hover {
+            background-color: var(--accent);
+            color: var(--bg);
+        }
+
+        #custom-amount {
+            color: var(--text) !important;
+        }
+
+        #custom-amount::placeholder {
+            color: var(--muted);
+        }
+
+        #payment-element {
+            margin: 16px 0;
+        }
+
+        #payment-form {
+            padding: 16px 0;
+        }
+
+        #payment-message {
+            color: var(--accent);
+            font-size: 0.9rem;
+            min-height: 20px;
+        }
+
+        button {
+            background-color: var(--accent);
+            color: var(--bg);
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 1rem;
+            width: 100%;
+            margin-top: 16px;
+            transition: opacity 0.2s;
+        }
+
+        button:hover:not(:disabled) {
+            opacity: 0.9;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
         footer {
             text-align: center;
             padding: 32px 16px;
@@ -147,8 +221,184 @@
         </div>
     </section>
 
+    <section>
+        <h2>Support Us</h2>
+        <div class="card donation-container">
+            <p>
+                If you enjoy our games and software, consider supporting our development with a donation.
+            </p>
+            <div id="donation-amounts">
+                <button class="amount-btn" data-amount="5">$5</button>
+                <button class="amount-btn" data-amount="10">$10</button>
+                <button class="amount-btn" data-amount="20">$20</button>
+                <button class="amount-btn" data-amount="50">$50</button>
+            </div>
+            <p style="font-size: 0.9rem; color: var(--muted); margin-top: 12px;">
+                Or enter a custom amount:
+            </p>
+            <div style="display: flex; gap: 8px; margin-top: 8px; margin-bottom: 16px;">
+                <input type="number" id="custom-amount" placeholder="Amount in USD" min="1" step="0.01" style="flex: 1; padding: 8px; border-radius: 4px; border: 1px solid #2e2e3f; background-color: var(--bg); color: var(--text);">
+                <button id="custom-donate-btn" onclick="handleCustomDonate()">Donate</button>
+            </div>
+            <div id="payment-form" style="display: none;">
+                <div id="payment-element"></div>
+                <div id="payment-message"></div>
+                <button id="submit-payment" type="submit">Complete Payment</button>
+            </div>
+        </div>
+    </section>
+
 </main>
 
 <footer>
     © 2026 TGM Software. All rights reserved.
+</footer>
 
+<!-- Stripe Payment Integration -->
+<script src="https://js.stripe.com/v3/"></script>
+<script>
+    // Initialize Stripe
+    const stripe = Stripe('pk_test_51SthrI67aFOXtqylFbVTRt2YGlihPePRkHXDYtpDYAIrZmk8tsxv2pAsnAterBsj57XFrulRp7yqPoKjbXb39p9o00hyqZ5Fx4');
+    let elements;
+
+    // Handle donation button clicks
+    document.querySelectorAll('.amount-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const amount = this.dataset.amount;
+            initiateDonate(amount);
+        });
+    });
+
+    function handleCustomDonate() {
+        const amount = document.getElementById('custom-amount').value;
+        
+        if (!amount || amount <= 0) {
+            showMessage('Please enter a valid amount');
+            return;
+        }
+
+        initiateDonate(amount);
+    }
+
+    async function initiateDonate(amount) {
+        setLoading(true);
+        
+        try {
+            // Determine backend URL based on environment
+            const backendUrl = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+                ? 'http://localhost:8080'
+                : 'https://tgmsoftware-main-api.onrender.com';
+
+            // Call backend to create PaymentIntent
+            const response = await fetch(backendUrl + '/api/donate/' + amount, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to create payment');
+            }
+
+            const { clientSecret } = await response.json();
+            console.log('Received clientSecret:', clientSecret);
+
+            // Initialize Payment Element if not already done
+            if (!elements) {
+                console.log('Creating Stripe elements with clientSecret');
+                elements = stripe.elements({ clientSecret });
+                const paymentElement = elements.create('payment');
+                console.log('Mounting payment element');
+                paymentElement.mount('#payment-element');
+                console.log('Payment element mounted successfully');
+            }
+
+            // Show payment form
+            document.getElementById('donation-amounts').style.display = 'none';
+            
+            // Hide the custom amount input section
+            const customAmountInput = document.getElementById('custom-amount');
+            if (customAmountInput) {
+                customAmountInput.parentElement.style.display = 'none';
+                // Also hide the label for custom amount
+                const label = customAmountInput.parentElement.previousElementSibling;
+                if (label) {
+                    label.style.display = 'none';
+                }
+            }
+            
+            document.getElementById('payment-form').style.display = 'block';
+            document.getElementById('custom-amount').value = '';
+
+            // Handle payment submission
+            document.getElementById('submit-payment').onclick = function(e) {
+                e.preventDefault();
+                handleSubmit(clientSecret);
+            };
+
+            setLoading(false);
+        } catch (error) {
+            console.error('Error in initiateDonate:', error);
+            showMessage('Error: ' + error.message);
+            setLoading(false);
+        }
+    }
+
+    async function handleSubmit(clientSecret) {
+        setLoading(true);
+
+        // First, submit the payment element to validate
+        const submitResult = await elements.submit();
+        
+        if (submitResult.error) {
+            showMessage(submitResult.error.message);
+            setLoading(false);
+            return;
+        }
+
+        // Build return URL based on environment
+        let returnUrl;
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            // Local development
+            returnUrl = 'http://localhost:3000/donation-success.html';
+        } else {
+            // Production (Vercel or other hosting)
+            returnUrl = window.location.origin + '/donation-success.html';
+        }
+
+        // Then confirm the payment
+        const { error } = await stripe.confirmPayment({
+            elements,
+            clientSecret,
+            confirmParams: {
+                return_url: returnUrl,
+            },
+        });
+
+        if (error) {
+            showMessage(error.message);
+            setLoading(false);
+        }
+    }
+
+    function showMessage(messageText) {
+        const messageContainer = document.querySelector('#payment-message');
+        messageContainer.textContent = messageText;
+        messageContainer.style.marginTop = '12px';
+        messageContainer.style.color = messageText.includes('Error') ? '#ff6b6b' : 'var(--accent)';
+    }
+
+    function setLoading(isLoading) {
+        const submitBtn = document.querySelector('#submit-payment');
+        if (submitBtn) {
+            if (isLoading) {
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Processing...';
+            } else {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Complete Payment';
+            }
+        }
+    }
+</script>
+</body>
+</html>
